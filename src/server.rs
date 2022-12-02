@@ -31,9 +31,8 @@ pub fn server() {
     let clients: Clients = Arc::new(Mutex::new(Vec::new()));
     let client_names: ClientNames = Arc::new(Mutex::new(HashMap::new()));
     
-    let listener = TcpListener::bind(LOOPBACK_SOCKET).unwrap_or_else(|_| panic!(
-        "[error] Unable to bind to port {}",
-        PORT
+    let listener = TcpListener::bind(BIND_SOCKET).unwrap_or_else(|_| panic!(
+        "[error] Unable to bind to port {PORT}",
     ));
     
 
