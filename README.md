@@ -17,4 +17,5 @@ To abstract away the complexity, I made a wrapper for `TcpSteam` called `TcpConn
 Despite some potential security vulnerabilities, `TcpConn` ended up working great in practice. The message type I decided on was an enum with each variant representing some kind of "command" that the recipeint could patten match on. 
 
 ## Potential improvements
-- instead of using `Arc<Mutex<...>>` to share the list of clients between the listener thread and the communication thread, it would probably be better to use `sync::mpsc::channel` to send the new client object to the communication thread as soon as it is ready.
+- Instead of using `Arc<Mutex<...>>` to share the list of clients between the listener thread and the communication thread, it would probably be better to use `sync::mpsc::channel` to send the new client object to the communication thread as soon as it is ready.
+- I didn't realize there was a `TcpStream::shutdown` method and was just discarding the steams when a client left. Using this might be able to help me remove that unstable `io::ErrorKind::Uncategorized` error in the client's message-receiving thread.
