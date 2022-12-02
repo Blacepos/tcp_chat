@@ -1,8 +1,8 @@
 # Tcp Chat
-A remake of a program I made a several years ago using C++ and SFML. The original was very messy and single-threaded. I wanted to challenge myself using my new experience to make something more organized and robust. Rust certainly helped with the robustness.
+A remake of a program I made a several years ago using C++ and SFML. The original was very messy and single-threaded. I wanted to challenge myself using my new experience to make something more organized and robust.
 
 ## TcpConn
-In the first iteration of this remake, I quickly ran into a problem: I wasn't able to read arbitrary length data from a `TcpSteam`. Something I wasn't aware of was that SFML made sockets really nice by providing this capability and this isn't the default behavior with sockets.
+In the first iteration of this remake, I quickly ran into a problem: I wasn't able to read arbitrary length data from a `TcpSteam`. Something I wasn't aware of was that SFML made sockets really nice by providing this capability via `sf::Packet` and this isn't the default behavior with sockets.
 
 Turns out not being able to send discrete and arbitrary data is pretty inconvenient.
 
