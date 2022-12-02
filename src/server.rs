@@ -77,6 +77,8 @@ pub fn server() {
 
                     println!("[server] Server shutting down");
                     server_distribute_message(&clients, msg);
+
+                    thread::sleep(Duration::from_secs(1));
                     exit(0);
 
                 },

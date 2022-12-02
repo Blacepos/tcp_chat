@@ -1,5 +1,5 @@
 use std::{io, thread};
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::process::exit;
 use std::thread::sleep;
 use std::time::Duration;
@@ -9,29 +9,42 @@ use crate::constants::*;
 use crate::tcp_conn::TcpConn;
 use crate::helpers::{input, input_msg};
 
+/// Ask the user to input a domain name or ip address
+fn prompt_address() -> SocketAddr {
+    println!("Enter the address of the server");
 
+    let (ip, port) = loop {
+        let unparsed_str = input();
+
+        let temp: Vec<_> = unparsed_str.split(':').take(2).collect();
+
+        let Some(&addr_str) = temp.first() else {continue};
+
+        let port: u16 = if let Some(&ps) = temp.get(1) {
+            if let Ok(p) = ps.parse() {
+                p
+            } else {
+                continue
+            }
+        } else {
+            PORT
+        };
+        
+        if let Ok(results) = dns_lookup::lookup_host(addr_str) {
+            if let Some(first) = results.first() {
+                break (*first, port);
+            }
+        }
+    };
+
+    SocketAddr::new(ip, port)
+}
 
 /// Console interface for client
 pub fn client(name: &str, is_host: bool) {
 
     // Ask the user for the host address. If the user is the host, use loopback.
-    let socket = if is_host {
-        LOOPBACK_SOCKET
-    } else {
-        println!("Enter the address of the server");
-
-        let ip: IpAddr = loop {
-            let ip_str = input();
-
-            if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                break ip;
-            } else if ip_str == "localhost" {
-                break LOOPBACK;
-            }
-        };
-
-        SocketAddr::new(ip, PORT)
-    };
+    let socket = if is_host {LOOPBACK_SOCKET} else {prompt_address()};
 
     let mut conn = connect_to_server(socket).expect("[error] Problem connecting to server.");
 
