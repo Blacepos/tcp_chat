@@ -19,6 +19,7 @@ mod helpers;
 mod result_repeat;
 mod packet;
 mod tcp_conn;
+mod commands;
 
 
 
@@ -35,7 +36,10 @@ fn main() {
 
     // Spawn the server thread if user wishes to host
     if will_host {
-        thread::spawn(server);
+        thread::Builder::new()
+            .name(String::from("server main"))
+            .spawn(server)
+            .unwrap();
     }
     
     client(name.as_str(), will_host);
@@ -50,9 +54,9 @@ fn demonstrate() -> Result<(), Box<dyn std::error::Error>> {
         println!("Client");
 
         let stream = TcpStream::connect(LOOPBACK_SOCKET)?;
-        let mut conn = TcpConn::new(stream);
+        let mut conn = TcpConn::new(stream)?;
 
-        conn.send(ClientText(String::from("Hello, server! I am sending this to you because it is a really long message and I just wanted to see if you like that I'm sending long messages. Also, I just wanted to tell you that I kind of like the way that you send me handshake messages and I was kind of um wondering if you would like to maybe possibly consider entering a long-term connection with me. Thanks bye.")))?;
+        conn.send(&ClientText(String::from("Hello, server! I am sending this to you because it is a really long message and I just wanted to see if you like that I'm sending long messages. Also, I just wanted to tell you that I kind of like the way that you send me handshake messages and I was kind of um wondering if you would like to maybe possibly consider entering a long-term connection with me. Thanks bye.")))?;
 
         let msg1: Message = conn.receive()?;
         let msg2: Message = conn.receive()?;
@@ -63,14 +67,14 @@ fn demonstrate() -> Result<(), Box<dyn std::error::Error>> {
 
         let listen = TcpListener::bind(LOOPBACK_SOCKET)?;
         let (stream, _) = listen.accept()?;
-        let mut conn = TcpConn::new(stream);
+        let mut conn = TcpConn::new(stream)?;
 
         let client_message: Message = conn.receive()?;
 
         println!("{:?}", client_message);
 
-        conn.send(ServerText(String::from("server"), String::from("No. Get owned lmao")))?;
-        conn.send(ServerShutdown)?;
+        conn.send(&ServerText(String::from("server"), String::from("No. Get owned lmao")))?;
+        conn.send(&ServerShutdown)?;
     }
 
     Ok(())

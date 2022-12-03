@@ -39,9 +39,12 @@ pub fn server() {
     // listen for incoming connections in another thread
     let clients_clone = Arc::clone(&clients);
     let client_names_clone = Arc::clone(&client_names);
-    thread::spawn(move || {
-        server_accept_connections(listener, clients_clone, client_names_clone)
-    });
+    thread::Builder::new()
+        .name(String::from("server listener thread"))
+        .spawn(move || {
+            server_accept_connections(listener, clients_clone, client_names_clone)
+        })
+        .unwrap();
 
     // a queue to store messages while the `clients` mutex is locked and borrowed
     let mut queue = Vec::<(u64, Message)>::new();
@@ -62,6 +65,17 @@ pub fn server() {
                 Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {
                     queue.push((client.id, ClientGoodbye));
                 },
+                // someone left without saying goodbye
+                Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => {
+                    queue.push((client.id, ClientGoodbye));
+                },
+                // client sent the wrong type
+                Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+                    println!("[server] Client sent an invalid type.");
+                    client.conn.empty_buffer();
+                },
+                // insufficient data from the connection
+                Err(e) if e.kind() == io::ErrorKind::Other => {},
                 Err(e) => {
                     println!("[server] Error reading client's connection: {:?}", e);
                 },
@@ -72,54 +86,117 @@ pub fn server() {
         // read back the messages received and determine what to do with them
         for (id, msg) in queue.iter() {
             
-            match msg {
-                ServerShutdown => {
-
-                    println!("[server] Server shutting down");
-                    server_distribute_message(&clients, msg);
-
-                    thread::sleep(Duration::from_secs(1));
-                    exit(0);
-
-                },
-                ClientText(text) => {
-
-                    if let Some(name) = client_names.lock().unwrap().get(id) {
-
-                        server_distribute_message(
-                            &clients,
-                            &ServerText(name.clone(), text.clone())
-                        );
-
-                    } else {
-                        println!("[server] Unable to get client name by id.");
-                    }
-
-                }
-                ClientGoodbye => {
-                    // perform removal of client
-                    clients.lock().unwrap().retain(|client| &client.id != id);
-
-                    // let everyone else know they left
-                    if let Some(name) = client_names.lock().unwrap().remove(id) {                     
-
-                        server_distribute_message(
-                            &clients,
-                            &ServerText("[server]".to_string(), format!("{name} has left the room"))
-                        );
-
-                    } else {
-                        println!("[server] A client was removed, but I was unable to tell the other clients");
-                    }
-
-                },
-                _ => {}
-            }                
+            server_handle_message(msg, id, &clients, &client_names);
         }
 
         queue.clear();
     }
 }
+
+
+/// Respond to the given message
+fn server_handle_message(msg: &Message, sender: &u64, clients: &Clients, client_names: &ClientNames) {
+    match msg {
+        ServerShutdown => {
+
+            println!("[server] Server shutting down");
+            server_distribute_message(clients, msg, &[]);
+
+            thread::sleep(Duration::from_secs(1));
+            exit(0);
+
+        },
+        ClientText(text) => {
+
+            if let Some(name) = client_names.lock().unwrap().get(sender) {
+
+                server_distribute_message(
+                    clients,
+                    &ServerText(name.clone(), text.clone()),
+                    &[*sender]
+                );
+
+            } else {
+                println!("[server] Unable to get client name by id.");
+            }
+
+        }
+        ClientGoodbye => {
+            // perform removal of client
+            clients.lock().unwrap().retain(|client| &client.id != sender);
+
+            // let everyone else know they left
+            if let Some(name) = client_names.lock().unwrap().remove(sender) {                     
+
+                server_distribute_message(
+                    clients,
+                    &ServerText("[server]".to_string(), format!("{name} has left the room")),
+                    &[]
+                );
+
+            } else {
+                println!("[server] A client was removed, but I was unable to tell the other clients");
+            }
+
+        },
+        ClientRename(new_name) => {
+            client_names.lock().unwrap().insert(*sender, new_name.clone());
+        },
+        ClientKick(who) => {
+
+            if who == &0 {
+                println!("[server] Host cannot kick themselves");
+                return;
+            }
+            
+            match clients.lock().unwrap().iter_mut().find(|client| &client.id == who) {
+                Some(kickee) => {
+                    if kickee.conn.send(&ServerNotifyKick).is_err() {
+                        println!("[server] Unable to notify client that they were kicked.");
+                    }
+
+                    // perform removal of client
+                    clients.lock().unwrap().retain(|client| &client.id != who);
+
+
+                    // let everyone else know they left
+                    if let Some(name) = client_names.lock().unwrap().remove(sender) {                     
+
+                        server_distribute_message(
+                            clients,
+                            &ServerText("[server]".to_string(), format!("{name} was kicked by the host")),
+                            &[]
+                        );
+
+                    } else {
+                        println!("[server] A client was kicked, but I was unable to tell the other clients");
+                    }
+                },
+                None => println!("[server] Client with id {who} does not exist"),
+            }
+        },
+        ClientRequestIDs => {
+            let mut unlocked = clients.lock().unwrap();
+            
+            let sender_client = unlocked.iter_mut()
+                .find(|client| &client.id == sender);
+            
+            match sender_client {
+                Some(client) => {
+                    let list: Vec<_> = client_names.lock().unwrap().iter()
+                        .map(|(x, y)| (y.clone(), *x))
+                        .collect();
+                    if client.conn.send(&ServerResponseIDs(list)).is_err() {
+                        println!("[server] Unable to reply to client that requested IDs");
+                    }
+                },
+                None => println!("[server] Client with id {sender} could not be found")
+            }
+        },
+        other => println!("[server] Got unusual message from client: {other:?}."),
+    }  
+}
+
 
 /// Continuously listen for incoming connections
 fn server_accept_connections(listener: TcpListener, clients: Clients, client_names: ClientNames) {
@@ -130,49 +207,45 @@ fn server_accept_connections(listener: TcpListener, clients: Clients, client_nam
 
     // Receive incoming client connections forever. This will not exit.
     for client in listener.incoming().flatten() {
-        client.set_nonblocking(false).unwrap();
-
-        let mut conn = TcpConn::new(client);
-
+        
         // block for first message from new client before moving on so we can get their name
-        let client_name = match conn.receive() {
-            Ok(ClientHello(name)) => {
+        let Ok(mut conn) = TcpConn::new(client) else {continue;};
 
+        let client_name = match conn.receive_timeout::<Message>(Duration::from_secs(5)) {
+            Ok(ClientHello(name)) => {
                 let msg = ServerText("[server]".to_string(), format!("{name} has joined the room!"));
                 
                 // let the new client and everyone else know someone joined
                 server_distribute_message(
                     &clients,
-                    &msg
+                    &msg,
+                    &[]
                 );
-
-                if conn.send(msg).is_err() {
-                    // let everyone know this client could not be connected with
-                    server_distribute_message(
-                        &clients,
-                        &ServerText("[server]".to_string(), format!("{name} left the server"))
-                    );
-
-                    // skip adding the client
-                    continue;
-                }
                 
-                name
+                match conn.send(&msg) {
+                    Ok(_) => name,
+                    Err(_) => {
+                        // let everyone know this client could not be connected with
+                        server_distribute_message(
+                            &clients,
+                            &ServerText("[server]".to_string(), format!("{name} left the room")),
+                            &[]
+                        );
+                        // skip adding the client
+                        continue;
+                    }
+                }
             },
             Ok(other) => {
                 println!("[server] Client sent invalid response. Expected `ClientHello(<some name>)`, got `{:?}`", other);
-                
-                // We skip this bad client
+                // we skip this bad client
                 continue;
             },
             Err(e) => {
-                // we blocked and the message should be smaller than `POLL_SIZE` bytes, so this
-                // should not happen under normal circumstances
                 println!("[server] Error reading client's connection: {}", e);
-
                 // skip client
                 continue;
-            }
+            },
         };
 
         conn.set_nonblocking(true).unwrap();
@@ -189,11 +262,12 @@ fn server_accept_connections(listener: TcpListener, clients: Clients, client_nam
     println!("[server] Stopped listening for connections");
 }
 
+
 /// Send `msg` to every client. Improvement idea: accept iterator instead of `&Clients` to allow
 /// easy filtering of which clients receive messages
-fn server_distribute_message(clients: &Clients, msg: &Message) {
+fn server_distribute_message(clients: &Clients, msg: &Message, exclude: &[u64]) {
     for client in clients.lock().unwrap().iter_mut() {
-        if client.conn.send(msg).is_err() {
+        if !exclude.contains(&client.id) && client.conn.send(msg).is_err() {
             println!("[server] A client did not receive a message!");
         }
     }
