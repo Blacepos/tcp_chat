@@ -21,3 +21,4 @@ Despite some potential security vulnerabilities, `TcpConn` ended up working grea
 - I didn't realize there was a `TcpStream::shutdown` method and was just discarding the steams when a client left. Using this might be able to help me remove that unstable `io::ErrorKind::Uncategorized` error in the client's message-receiving thread.
 - `TcpConn` at this point should probably return a custom error type instead of forcing the user to check the `io::ErrorKind` of the errors.
 - Have `TcpConn` wrap the creation of `TcpStream` as well as provide its own listener to return `TcpConn`s.
+- CoLOrEd TExT
