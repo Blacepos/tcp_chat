@@ -12,9 +12,7 @@ I also wanted easy access to the data the message encoded, so I decided to use s
 
 To abstract away the complexity, I made a wrapper for `TcpSteam` called `TcpConn` which would provide simple `send<T>` and `receive<T>` functions.
 
-*Side note: can I just take a moment to say I implemented this entire thing in one go and it worked on the first try? I've been wary to call Rust my favorite language due to the fact that I only started learning it several months ago, but I'm officially declaring it now. It's such a surreal experience to have something you've been conditioned to expect to fail actually work, which seems to be a common occurence with Rust.*
-
-Despite some potential security vulnerabilities, `TcpConn` ended up working great in practice. The message type I decided on was an enum with each variant representing some kind of "command" that the recipeint could patten match on. 
+`TcpConn` ended up working great in practice. The message type I decided on was an enum with each variant representing some kind of "command" that the recipient could patten match on. 
 
 ## Potential improvements
 - Instead of using `Arc<Mutex<...>>` to share the list of clients between the listener thread and the communication thread, it would probably be better to use `sync::mpsc::channel` to send the new client object to the communication thread as soon as it is ready.
